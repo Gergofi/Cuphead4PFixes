@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      MUST be net35. Cuphead 2017.4 runs the legacy Mono runtime (CLR 2.0.50727), whose mscorlib is
+      2.0.0.0. A net472 build references mscorlib 4.0.0.0, so the runtime cannot resolve even
+      System.Action and the plugin dies with a TypeLoadException inside AddComponent - BepInEx logs
+      "Loading [...]" and then nothing, because Awake never runs.
+    -->
+    <TargetFramework>net35</TargetFramework>
+    <AssemblyName>Cuphead4PFixes</AssemblyName>
+    <RootNamespace>Cuphead4PFixes</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <DebugType>none</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Version>1.0.0</Version>
+    <!-- Harmony/BepInEx assemblies are not CLS-compliant; silence the noise. -->
+    <NoWarn>$(NoWarn);CS0436;CS1701;CS1702</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <CupheadDir Condition="'$(CupheadDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Cuphead</CupheadDir>
+    <GameManaged>$(CupheadDir)\Cuphead_Data\Managed</GameManaged>
+    <BepInExCore>$(CupheadDir)\BepInEx\core</BepInExCore>
+    <PluginsDir>$(CupheadDir)\BepInEx\plugins</PluginsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- net472 reference assemblies so the .NET (Core) SDK can target Framework. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExCore)\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExCore)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameManaged)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameManaged)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.Physics2DModule">
+      <HintPath>$(GameManaged)\UnityEngine.Physics2DModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Rewired_Core">
+      <HintPath>$(GameManaged)\Rewired_Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Drop the built plugin straight into BepInEx/plugins. -->
+  <Target Name="DeployToPlugins" AfterTargets="Build" Condition="Exists('$(PluginsDir)')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginsDir)" ContinueOnError="true" />
+    <Message Importance="high" Text="Deployed $(TargetFileName) -> $(PluginsDir)" />
+  </Target>
+
+</Project>
