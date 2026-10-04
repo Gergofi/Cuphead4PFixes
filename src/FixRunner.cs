@@ -95,7 +95,10 @@ namespace Cuphead4PFixes
         private void RescueOffscreen()
         {
             var level = Level.Current;
-            if (level == null) return;
+            // Boss arenas own their pit damage and scripted offscreen moves.
+            // Rescuing there bypasses Mortimer's pit and disrupts Saltbaker's
+            // hidden transition positions. This fix is for Run & Gun only.
+            if (level == null || level.LevelType != Level.Type.Platforming) return;
 
             var cam = ResolveCamera();
             if (cam == null) return;

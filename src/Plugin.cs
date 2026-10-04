@@ -14,7 +14,7 @@ namespace Cuphead4PFixes
     /// (PlayerId.PlayerThree/PlayerFour exist, PlayerManager tracks 4 slots). It only repairs the
     /// places where that conversion left two-player assumptions behind.
     /// </summary>
-    [BepInPlugin(Guid, "Cuphead 4-Player Fixes", "1.0.0")]
+    [BepInPlugin(Guid, "Cuphead 4-Player Fixes", "1.0.9")]
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.mod.cuphead.4player.fixes";
@@ -61,6 +61,11 @@ namespace Cuphead4PFixes
         internal static ConfigEntry<bool> FixChessBossTargeting;
         internal static ConfigEntry<bool> RedirectDeadPlayerAim;
         internal static ConfigEntry<bool> LogTargetSwitches;
+        internal static ConfigEntry<bool> FixEstherVacuumForces;
+        internal static ConfigEntry<bool> FixSaltbakerTransitions;
+
+        // --- Health-sharing revival ------------------------------------------
+        internal static ConfigEntry<bool> FixHealthSharing;
 
         // --- Overworld interaction --------------------------------------------
         internal static ConfigEntry<bool> ExtraPlayersCanInteract;
@@ -73,10 +78,17 @@ namespace Cuphead4PFixes
         internal static ConfigEntry<bool> RegroupStrandedExtras;
         internal static ConfigEntry<float> MapRegroupDistance;
 
+        // --- Difficulty -------------------------------------------------------
+        internal static ConfigEntry<bool> FixDifficultySelection;
+        internal static ConfigEntry<bool> LogDifficulty;
+
         // --- Join gating ------------------------------------------------------
         internal static ConfigEntry<bool> BlockJoinOutsideGameplay;
         internal static ConfigEntry<bool> RestoreJoinOnGameplayLoad;
         internal static ConfigEntry<bool> GateTitleScreen;
+        internal static ConfigEntry<bool> FixDuplicateControllerJoin;
+        internal static ConfigEntry<bool> FilterMirroredJoinPresses;
+        internal static ConfigEntry<bool> LogControllerJoins;
 
         private Harmony _harmony;
 
@@ -87,7 +99,7 @@ namespace Cuphead4PFixes
 
             // LogMessage, not LogInfo: this is the "did Awake even start" marker and must survive
             // any log-level filtering.
-            Log.LogMessage("Cuphead4PFixes: Awake starting.");
+            Log.LogMessage("Cuphead4PFixes v1.0.9: Awake starting. Path=" + typeof(Plugin).Assembly.Location);
 
             // Every stage is isolated. A failure in one must never stop the others, and must never
             // leave Harmony unpatched silently - that was invisible in the previous run.
@@ -144,7 +156,7 @@ namespace Cuphead4PFixes
                 "Horizontal gap between extra players when they are re-placed.");
 
             RescueOffscreenPlayers = Config.Bind("Camera", "RescueOffscreenPlayers", true,
-                "Teleport any player who falls past the left or bottom edge of the camera back next to Player 1. Prevents the Treetop Trouble offscreen softlock.");
+                "In Run & Gun levels only, return stranded offscreen players next to a living player. Prevents the Treetop Trouble softlock. Boss arenas retain their own pit damage and scripted transitions.");
             ViewportMargin = Config.Bind("Camera", "ViewportMargin", 0.04f,
                 "How far outside the viewport (0-1 units) a player must be before being rescued.");
             RescueCooldown = Config.Bind("Camera", "RescueCooldown", 0.75f,
@@ -183,6 +195,12 @@ namespace Cuphead4PFixes
 
             FixBossTargeting = Config.Bind("Bosses", "FixBossTargeting", true,
                 "Replace PlayerManager.GetRandom with a uniform pick over living players, and make DoesPlayerExist total. Vanilla GetRandom rolls PlayerId.Any/None into a Dictionary keyed 0-3 and throws KeyNotFoundException, which kills the calling boss coroutine and freezes its targeting.");
+            FixEstherVacuumForces = Config.Bind("Bosses", "FixEstherVacuumForces", true,
+                "Update Esther Winchester's vacuum strength for P3/P4 and remove leftover vacuum forces from every player when suction ends or her old body is destroyed. Prevents the third-form movement freeze.");
+            FixSaltbakerTransitions = Config.Bind("Bosses", "FixSaltbakerTransitions", true,
+                "Provide P3/P4 landing positions during Saltbaker's transition to the pepper-shaker phase. Prevents the two-entry position array from interrupting the transition.");
+            FixHealthSharing = Config.Bind("Revival", "FixHealthSharing", true,
+                "Allow every player to revive using one HP from a living teammate with at least two HP. Preserve P1/P2 partner priority; otherwise use the teammate with the most HP. Failed attempts can be retried. Restart required.");
             FixChessBossTargeting = Config.Bind("Bosses", "FixChessBossTargeting", true,
                 "King's Leap: ChessKnightLevelKnight, ChessBishopLevelBishop and ChessBishopLevelCandle hardcode GetPlayer(PlayerOne)/GetPlayer(PlayerTwo) as their only candidates. Redirect the PlayerTwo slot to a rotating living player among P2/P3/P4 so extras can be targeted. Pawn, Queen and Rook already use the four-player-aware GetNext/GetRandom/GetFirst and are left alone.");
             RedirectDeadPlayerAim = Config.Bind("Bosses", "RedirectDeadPlayerAim", true,
@@ -209,8 +227,19 @@ namespace Cuphead4PFixes
             VerboseMapInteractions = Config.Bind("Map", "VerboseMapInteractions", false,
                 "Log every frame an extra player is standing in range of an interactive entity. Noisy - only enable when diagnosing why a prompt will not fire.");
 
+            FixDifficultySelection = Config.Bind("Difficulty", "FixDifficultySelection", true,
+                "Correct the signed Run & Gun level-ID comparison that forces bosses to Regular. Applies before difficulty-dependent initialization, for every player count. Restart required.");
+            LogDifficulty = Config.Bind("Difficulty", "LogDifficulty", true,
+                "Log selected and actual difficulty after Level.Awake using the [4P-Difficulty] tag.");
+
             BlockJoinOutsideGameplay = Config.Bind("Join", "BlockJoinOutsideGameplay", true,
                 "Block joining for slots 1-3 while no Map or Level is live (menus, cutscenes, loading). Never applies during gameplay, and never touches Player One.");
+            FixDuplicateControllerJoin = Config.Bind("Join", "FixDuplicateControllerJoin", true,
+                "Reserve controllers while a join prompt is pending. P3/P4 require their own joystick; shared keyboard input or another player's joystick cannot join an extra slot.");
+            FilterMirroredJoinPresses = Config.Bind("Join", "FilterMirroredJoinPresses", true,
+                "Wait 250 ms before accepting controller join input and remember devices that mirror presses within 200 ms. A linked device needs two separate press/release cycles while its partner stays idle to prove independence. Join controllers one at a time. Gameplay input is unchanged.");
+            LogControllerJoins = Config.Bind("Join", "LogControllerJoins", true,
+                "Log changes to join states and assigned joysticks using the [4P-Input] tag.");
             RestoreJoinOnGameplayLoad = Config.Bind("Join", "RestoreJoinOnGameplayLoad", true,
                 "Re-arm joining for slots 1-3 in a Level.Start / Map.Start postfix, so a block from the preceding menu can never leak into gameplay. Note this enables joining slightly earlier than vanilla, which defers it to Level._OnLevelStart and the end of Map.start_cr.");
             GateTitleScreen = Config.Bind("Join", "GateTitleScreen", false,
